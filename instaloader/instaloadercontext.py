@@ -190,6 +190,18 @@ class InstaloaderContext:
         self._session = session
         self.username = username
 
+    def load_session_from_dict(self, username, cookie_dict, proxies):
+        session = requests.Session()
+        session.proxies = proxies
+        session.cookies = requests.utils.cookiejar_from_dict(cookie_dict)
+        session.headers.update(self._default_http_header())
+        session.headers.update({'X-CSRFToken': session.cookies.get_dict()['csrftoken']})
+        # Override default timeout behavior.
+        # Need to silence mypy bug for this. See: https://github.com/python/mypy/issues/2427
+        session.request = partial(session.request, timeout=self.request_timeout) # type: ignore
+        self._session = session
+        self.username = username
+
     def test_login(self) -> Optional[str]:
         """Not meant to be used directly, use :meth:`Instaloader.test_login`."""
         data = self.graphql_query("d6f4427fbe92d846298cf93df0b937d3", {})
