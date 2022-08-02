@@ -25,6 +25,7 @@ def copy_session(session: requests.Session, request_timeout: Optional[float] = N
     new = requests.Session()
     new.cookies = requests.utils.cookiejar_from_dict(requests.utils.dict_from_cookiejar(session.cookies))
     new.headers = session.headers.copy()
+    new.proxies = session.proxies
     # Override default timeout behavior.
     # Need to silence mypy bug for this. See: https://github.com/python/mypy/issues/2427
     new.request = partial(new.request, timeout=request_timeout) # type: ignore
@@ -55,8 +56,9 @@ class InstaloaderContext:
                  max_connection_attempts: int = 3, request_timeout: float = 300.0,
                  rate_controller: Optional[Callable[["InstaloaderContext"], "RateController"]] = None,
                  fatal_status_codes: Optional[List[int]] = None,
-                 iphone_support: bool = True):
+                 iphone_support: bool = True, proxies: Optional[Dict[str, str]] = None):
 
+        self.proxies = {} if proxies is None else proxies
         self.user_agent = user_agent if user_agent is not None else default_user_agent()
         self.request_timeout = request_timeout
         self._session = self.get_anonymous_session()
@@ -161,6 +163,7 @@ class InstaloaderContext:
     def get_anonymous_session(self) -> requests.Session:
         """Returns our default anonymous requests.Session object."""
         session = requests.Session()
+        session.proxies = self.proxies
         session.cookies.update({'sessionid': '', 'mid': '', 'ig_pr': '1',
                                 'ig_vw': '1920', 'csrftoken': '',
                                 's_network': '', 'ds_user_id': ''})
@@ -177,6 +180,7 @@ class InstaloaderContext:
     def load_session_from_file(self, username, sessionfile):
         """Not meant to be used directly, use :meth:`Instaloader.load_session_from_file`."""
         session = requests.Session()
+        session.proxies = self.proxies
         session.cookies = requests.utils.cookiejar_from_dict(pickle.load(sessionfile))
         session.headers.update(self._default_http_header())
         session.headers.update({'X-CSRFToken': session.cookies.get_dict()['csrftoken']})
@@ -204,6 +208,7 @@ class InstaloaderContext:
         # pylint:disable=protected-access
         http.client._MAXHEADERS = 200
         session = requests.Session()
+        session.proxies = self.proxies
         session.cookies.update({'sessionid': '', 'mid': '', 'ig_pr': '1',
                                 'ig_vw': '1920', 'ig_cb': '1', 'csrftoken': '',
                                 's_network': '', 'ds_user_id': ''})

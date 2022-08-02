@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, IO, Iterator, List, Optional, Set, Union, cast
+from typing import Any, Callable, IO, Iterator, List, Optional, Set, Union, cast, Dict
 from urllib.parse import urlparse
 
 import requests
@@ -74,11 +74,13 @@ def format_string_contains_key(format_string: str, key: str) -> bool:
 
 def _requires_login(func: Callable) -> Callable:
     """Decorator to raise an exception if herewith-decorated function is called without being logged in"""
+
     @wraps(func)
     def call(instaloader, *args, **kwargs):
         if not instaloader.context.is_logged_in:
             raise LoginRequiredException("--login=USERNAME required.")
         return func(instaloader, *args, **kwargs)
+
     return call
 
 
@@ -91,6 +93,7 @@ def _retry_on_connection_error(func: Callable) -> Callable:
     :meth:`.get_json`, :meth:`.get_iphone_json`, :meth:`.graphql_query` and :meth:`.graphql_node_list` already have
     their own logic for retrying, hence functions that only use these for network access must not be decorated with this
     decorator."""
+
     @wraps(func)
     def call(instaloader, *args, **kwargs):
         try:
@@ -110,6 +113,7 @@ def _retry_on_connection_error(func: Callable) -> Callable:
             except KeyboardInterrupt:
                 instaloader.context.error("[skipped by user]", repeat_at_end=False)
                 raise ConnectionException(error_string) from None
+
     return call
 
 
@@ -232,11 +236,13 @@ class Instaloader:
                  fatal_status_codes: Optional[List[int]] = None,
                  iphone_support: bool = True,
                  title_pattern: Optional[str] = None,
-                 sanitize_paths: bool = False):
+                 sanitize_paths: bool = False,
+                 proxies: Optional[Dict[str, str]] = None,
+                 ):
 
         self.context = InstaloaderContext(sleep, quiet, user_agent, max_connection_attempts,
                                           request_timeout, rate_controller, fatal_status_codes,
-                                          iphone_support)
+                                          iphone_support, proxies)
 
         # configuration parameters
         self.dirname_pattern = dirname_pattern or "{target}"
@@ -245,7 +251,7 @@ class Instaloader:
             self.title_pattern = title_pattern
         else:
             if (format_string_contains_key(self.dirname_pattern, 'profile') or
-                format_string_contains_key(self.dirname_pattern, 'target')):
+                    format_string_contains_key(self.dirname_pattern, 'target')):
                 self.title_pattern = '{date_utc}_UTC_{typename}'
             else:
                 self.title_pattern = '{target}_{date_utc}_UTC_{typename}'
@@ -275,19 +281,20 @@ class Instaloader:
                     self.slide_start = -1
                 else:
                     if int(splitted[0]) > 0:
-                        self.slide_start = self.slide_end = int(splitted[0])-1
+                        self.slide_start = self.slide_end = int(splitted[0]) - 1
                     else:
                         raise InvalidArgumentException("--slide parameter must be greater than 0.")
             elif len(splitted) == 2:
                 if splitted[1] == 'last':
-                    self.slide_start = int(splitted[0])-1
+                    self.slide_start = int(splitted[0]) - 1
                 elif 0 < int(splitted[0]) < int(splitted[1]):
-                    self.slide_start = int(splitted[0])-1
-                    self.slide_end = int(splitted[1])-1
+                    self.slide_start = int(splitted[0]) - 1
+                    self.slide_end = int(splitted[1]) - 1
                 else:
                     raise InvalidArgumentException("Invalid data for --slide parameter.")
             else:
                 raise InvalidArgumentException("Invalid data for --slide parameter.")
+        self.proxies = {} if proxies is None else proxies
 
     @contextmanager
     def anonymous_copy(self):
@@ -402,7 +409,7 @@ class Instaloader:
             return unique_comments_list
 
         def get_new_comments(new_comments, start):
-            for idx, comment in enumerate(new_comments, start=start+1):
+            for idx, comment in enumerate(new_comments, start=start + 1):
                 if idx % 250 == 0:
                     self.context.log('{}'.format(idx), end='…', flush=True)
                 yield comment
@@ -445,9 +452,11 @@ class Instaloader:
 
     def save_caption(self, filename: str, mtime: datetime, caption: str) -> None:
         """Updates picture caption / Post metadata info"""
+
         def _elliptify(caption):
             pcaption = caption.replace('\n', ' ').strip()
             return '[' + ((pcaption[:29] + u"\u2026") if len(pcaption) > 31 else pcaption) + ']'
+
         filename += '.txt'
         caption += '\n'
         pcaption = _elliptify(caption)
@@ -535,8 +544,8 @@ class Instaloader:
         pic_data = TitlePic(owner_profile, target, name_suffix, ig_filename, date_object)
         dirname = _PostPathFormatter(pic_data, self.sanitize_paths).format(self.dirname_pattern, target=target)
         filename_template = os.path.join(
-                dirname,
-                _PostPathFormatter(pic_data, self.sanitize_paths).format(self.title_pattern, target=target))
+            dirname,
+            _PostPathFormatter(pic_data, self.sanitize_paths).format(self.title_pattern, target=target))
         filename = self.__prepare_filename(filename_template, lambda: url) + ".jpg"
         content_length = http_response.headers.get('Content-Length', None)
         if os.path.isfile(filename) and (not self.context.is_logged_in or
